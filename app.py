@@ -106,21 +106,27 @@ def is_any(value):
 def load_data():
     df = pd.read_excel(DATA_FILE, sheet_name=SHEET_NAME)
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-    df = df.replace(["", " ", "NA", "N/A", "None", "null", "nan", "-", "--", "Not publicly available"], np.nan)
     for column in NUMERIC_COLUMNS:
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
     for column in ["brand", "model", "variant", "body_type", "fast_charging_supported", "sales_period", "image_url"]:
         if column in df.columns:
-            df[column] = df[column].astype("string").str.strip()
+            cleaned = df[column].astype("string").str.strip()
+            missing_tokens = cleaned.str.lower().isin({
+                "", "na", "n/a", "none", "null", "nan", "-", "--",
+                "not publicly available",
+            })
+            df[column] = cleaned.mask(missing_tokens, pd.NA)
     df["brand"] = df["brand"].fillna("Unknown Brand")
     df["model"] = df["model"].fillna("Unknown Model")
     df["variant"] = df["variant"].fillna("Base / entry configuration")
     df["body_type"] = df["body_type"].fillna("Unknown")
-    charging = df["fast_charging_supported"].fillna("").astype(str).str.lower()
-    df["fast_charging_supported"] = np.select(
-        [charging.isin(["yes", "y", "true", "1", "supported"]), charging.isin(["no", "n", "false", "0", "not supported"])],
-        ["Yes", "No"], default="Unknown")
+    charging = df["fast_charging_supported"].fillna("").astype("string").str.lower()
+    charging_map = {
+        "yes": "Yes", "y": "Yes", "true": "Yes", "1": "Yes", "supported": "Yes",
+        "no": "No", "n": "No", "false": "No", "0": "No", "not supported": "No",
+    }
+    df["fast_charging_supported"] = charging.map(charging_map).fillna("Unknown").astype(str)
     df["rating_score"] = np.where(df["user_rating"].notna() & df["rating_count"].fillna(0).gt(0), (df["user_rating"] / 5).clip(0, 1), 0.0)
     max_count = df["rating_count"].fillna(0).clip(lower=0).max()
     df["rating_count_score"] = np.log1p(df["rating_count"].fillna(0).clip(lower=0)) / np.log1p(max_count) if max_count > 0 else 0.0
@@ -247,4 +253,3 @@ if submitted:
         st.markdown('<div class="vw-note"><strong>Good to know:</strong> Prices are indicative ex-showroom figures. Claimed range can differ from real-world range based on speed, weather, load and driving style. Verify the latest variant, price and charging specifications with the manufacturer before buying.</div>', unsafe_allow_html=True)
 else:
     st.markdown('<div class="vw-empty"><strong>Your matches will appear here.</strong><br>Start with the three essentials: budget, usable range and seats.</div>', unsafe_allow_html=True)
-
